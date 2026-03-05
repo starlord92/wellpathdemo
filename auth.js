@@ -2,8 +2,8 @@
 var auth = {
   key: 'hk_user',
   signIn: function(email, password) {
-    var allowedEmail = 'sumanths909@gmail.com';
-    var allowedPassword = 'SAIsumanth@14';
+    var allowedEmail = 'wellpath@gmail.com';
+    var allowedPassword = 'wellpath';
     var e = (email || '').trim().toLowerCase();
     var p = (password || '').trim();
     if (e === allowedEmail && p === allowedPassword) {
