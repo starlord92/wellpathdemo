@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Hub — Hotkeys Solution</title>
+  <link rel="stylesheet" href="styles.css?v=4" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+</head>
+<body class="profile-page">
+  <canvas id="bg-canvas"></canvas>
+
+  <nav class="nav">
+    <div class="nav-logo">
+      <a href="index.html" class="nav-logo-link">
+        <span class="logo-bracket">[</span>HK<span class="logo-bracket">]</span>
+        <span class="logo-text">HOTKEYS SOLUTION</span>
+      </a>
+    </div>
+    <div class="nav-links">
+      <a href="index.html#products">Hub</a>
+      <a href="#" id="sign-out-link" class="nav-signout">Sign out</a>
+    </div>
+  </nav>
+
+  <main class="profile-main">
+    <header class="profile-header">
+      <div class="section-label">UNIFIED HUB</div>
+      <h1>Your apps</h1>
+      <p class="profile-welcome">Welcome, <span id="user-email">—</span></p>
+    </header>
+
+    <div class="profile-apps">
+      <a href="https://insightgpt.keyskillset.com/login" target="_blank" rel="noopener noreferrer" class="app-tile app-tile-1">
+        <span class="app-tile-icon">◇</span>
+        <span class="app-tile-name">InsightGPT</span>
+        <span class="app-tile-desc">Business Intelligence</span>
+      </a>
+      <a href="https://conditionalrelease.keyskillset.com/" target="_blank" rel="noopener noreferrer" class="app-tile app-tile-2">
+        <span class="app-tile-icon">✓</span>
+        <span class="app-tile-name">Conditional Release</span>
+        <span class="app-tile-desc">Compliance & Release</span>
+      </a>
+      <a href="mailto:hello@hotkeyssolution.com?subject=Comp%20Restore%20AI%20Demo" class="app-tile app-tile-3">
+        <span class="app-tile-icon">▤</span>
+        <span class="app-tile-name">Comp Restore AI</span>
+        <span class="app-tile-desc">Compensation Recovery</span>
+      </a>
+      <a href="#marco-iframe" class="app-tile app-tile-4">
+        <span class="app-tile-icon">◉</span>
+        <span class="app-tile-name">MARCo</span>
+        <span class="app-tile-desc">CBT Coaching — open below</span>
+      </a>
+    </div>
+
+    <section class="profile-marco" id="marco-iframe">
+      <div class="section-label">MARCo</div>
+      <h2 class="marco-title">CBT Coaching</h2>
+      <div class="marco-iframe-wrap">
+        <iframe id="marco-frame" title="MARCo" src="" allow="fullscreen"></iframe>
+      </div>
+    </section>
+  </main>
+
+  <script src="auth.js?v=1"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="app.js?v=3"></script>
+  <script>
+    (function() {
+      if (!auth.isLoggedIn()) {
+        window.location.replace('signin.html');
+        return;
+      }
+      var user = auth.getuser();
+      if (user && user.email) {
+        document.getElementById('user-email').textContent = user.email;
+      }
+      var marcoFrame = document.getElementById('marco-frame');
+      if (marcoFrame && user && user.email) {
+        var pw = '';
+        try { pw = sessionStorage.getItem('hk_marco_pw') || ''; } catch (e) {}
+        var base = 'https://app.marcohealthtech.com';
+        var params = new URLSearchParams({ email: user.email, password: pw });
+        marcoFrame.src = base + '?' + params.toString();
+      }
+      document.getElementById('sign-out-link').addEventListener('click', function(e) {
+        e.preventDefault();
+        auth.signOut();
+        window.location.replace('signin.html');
+      });
+    })();
+  </script>
+</body>
+</html>
