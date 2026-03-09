@@ -14,17 +14,22 @@ if _root not in sys.path:
 
 
 def _setup_gcp_credentials():
+    """Write GOOGLE_APPLICATION_CREDENTIALS_JSON to /tmp and set env. Returns None on success, error string on failure."""
     key_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
     if not key_json:
-        return
+        return "GOOGLE_APPLICATION_CREDENTIALS_JSON is not set. In Vercel → Settings → Environment Variables, add it with the full service account JSON (paste the entire key file)."
     try:
         json.loads(key_json)
+    except json.JSONDecodeError as e:
+        return "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON (maybe truncated?). Re-paste the full key. " + str(e)
+    try:
         path = "/tmp/gcp-creds-voice.json"
         with open(path, "w") as f:
             f.write(key_json)
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
-    except Exception:
-        pass
+        return None
+    except Exception as e:
+        return "Could not write credentials file: " + str(e)
 
 
 def _cors_headers():
@@ -100,7 +105,11 @@ class handler(BaseHTTPRequestHandler):
 
         project = os.environ.get("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
         bucket = os.environ.get("GOOGLE_CLOUD_BUCKET", "penfield-dev")
-        _setup_gcp_credentials()
+        err = _setup_gcp_credentials()
+        if err:
+            _send_headers(self, 500)
+            self.wfile.write(json.dumps({"error": err}).encode("utf-8"))
+            return
 
         try:
             from ehr_conversion import EHRConverter
