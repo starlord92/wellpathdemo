@@ -1,0 +1,127 @@
+"""
+Vercel serverless: POST /api/extract-image (multipart: file = image)
+Extracts text from image then structured EHR from that text.
+"""
+import json
+import os
+import sys
+from io import BytesIO
+from http.server import BaseHTTPRequestHandler
+
+_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+
+def _setup_gcp_credentials():
+    key_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not key_json:
+        return
+    try:
+        json.loads(key_json)
+        path = "/tmp/gcp-creds-image.json"
+        with open(path, "w") as f:
+            f.write(key_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+    except Exception:
+        pass
+
+
+def _cors_headers():
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Content-Type": "application/json",
+    }
+
+
+def _send_headers(self, status_code=200):
+    self.send_response(status_code)
+    for k, v in _cors_headers().items():
+        self.send_header(k, v)
+    self.end_headers()
+
+
+def _parse_multipart(content_type, body):
+    if not content_type or "multipart/form-data" not in content_type:
+        return None, None
+    try:
+        import cgi
+        env = {"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type, "CONTENT_LENGTH": str(len(body))}
+        fs = cgi.FieldStorage(fp=BytesIO(body), environ=env, keep_blank_values=True)
+        for name in ("file", "image", "document"):
+            field = fs.get(name)
+            if field and getattr(field, "file", None):
+                data = field.file.read()
+                fn = getattr(field, "filename", "upload.jpg") or "upload.jpg"
+                if data:
+                    return data, fn
+        return None, None
+    except Exception:
+        return None, None
+
+
+def _mime_for_filename(filename):
+    if not filename:
+        return "image/jpeg"
+    lower = filename.lower()
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    return "image/jpeg"
+
+
+class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        _send_headers(self, 204)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        body = self.rfile.read(length) if length else b""
+        content_type = self.headers.get("Content-Type", "")
+        file_bytes, filename = _parse_multipart(content_type, body)
+        if not file_bytes:
+            _send_headers(self, 400)
+            self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'image'."}).encode("utf-8"))
+            return
+
+        tmp_path = os.path.join("/tmp", filename or "upload.jpg")
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(file_bytes)
+        except Exception as e:
+            _send_headers(self, 500)
+            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
+        bucket = os.environ.get("GOOGLE_CLOUD_BUCKET", "penfield-dev")
+        _setup_gcp_credentials()
+
+        try:
+            from ehr_conversion import EHRConverter
+            converter = EHRConverter(project=project, bucket=bucket)
+            mime = _mime_for_filename(filename)
+            text = converter.extract_text_from_image(tmp_path, mime_type=mime, upload_to_gcs=True)
+            if not (text and text.strip()):
+                result = {"extracted_text": "", "structured": {}}
+            else:
+                result = converter.extract_from_text(text)
+                result["extracted_text"] = text
+            out = json.dumps(result).encode("utf-8")
+        except Exception as e:
+            _send_headers(self, 500)
+            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        _send_headers(self, 200)
+        self.wfile.write(out)

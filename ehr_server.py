@@ -14,6 +14,25 @@ import sys
 # Ensure we can import ehr_conversion from current dir
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _setup_gcp_credentials():
+    """If GOOGLE_APPLICATION_CREDENTIALS_JSON is set, write to a temp file and set ADC."""
+    key_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not key_json:
+        return
+    try:
+        import tempfile
+        json.loads(key_json)
+        fd, path = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(fd, "w") as f:
+            f.write(key_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+    except Exception:
+        pass
+
+
+_setup_gcp_credentials()
+
 from flask import Flask, request, jsonify, send_from_directory, send_file
 
 app = Flask(__name__, static_folder=".", static_url_path="")

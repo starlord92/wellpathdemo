@@ -26,6 +26,7 @@
     .ehr-status { margin: 0.75rem 0; font-size: 0.85rem; color: var(--text-muted); }
     .ehr-status.error { color: #ff6b6b; }
     .ehr-result { margin-top: 1rem; padding: 1rem; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    .ehr-file-input { margin: 0.75rem 0; display: block; color: var(--text-muted); font-size: 0.85rem; }
   </style>
 </head>
 <body class="profile-page">
@@ -50,12 +51,39 @@
     <p class="subtitle">Reusable unstructured → structured EHR conversion (Vertex AI / Gemini). Use from any Python app.</p>
 
     <div class="ehr-tool">
-      <h2>Extract from text</h2>
-      <p>Paste patient or clinical text below; the app will return structured JSON (name, address, email, phone, etc.). Requires the EHR server and <code>GOOGLE_CLOUD_PROJECT</code> (see below).</p>
+      <h2>Chat</h2>
+      <p>Paste patient or clinical text below; the app will return structured JSON (name, address, email, phone, etc.).</p>
       <textarea id="ehr-text-input" class="ehr-textarea" placeholder="e.g. Patient Jane Doe, 123 Main St, Springfield, IL. Contact jane@example.com or (555) 123-4567." rows="4"></textarea>
       <button type="button" id="ehr-extract-btn" class="btn-primary">Extract from text</button>
       <div id="ehr-status" class="ehr-status" aria-live="polite"></div>
       <pre id="ehr-result" class="ehr-result" style="display:none;"></pre>
+    </div>
+
+    <div class="ehr-tool">
+      <h2>PDF</h2>
+      <p>Upload a clinical note or document (PDF); the app will extract structured information and return JSON.</p>
+      <input type="file" id="ehr-file-input" accept=".pdf,application/pdf" class="ehr-file-input" />
+      <button type="button" id="ehr-doc-btn" class="btn-primary">Extract from PDF</button>
+      <div id="ehr-doc-status" class="ehr-status" aria-live="polite"></div>
+      <pre id="ehr-doc-result" class="ehr-result" style="display:none;"></pre>
+    </div>
+
+    <div class="ehr-tool">
+      <h2>Voice</h2>
+      <p>Upload an audio file (MP3, WAV, M4A, WebM); the app will transcribe and extract structured EHR from the transcription.</p>
+      <input type="file" id="ehr-voice-input" accept=".mp3,.wav,.m4a,.webm,audio/*" class="ehr-file-input" />
+      <button type="button" id="ehr-voice-btn" class="btn-primary">Extract from voice</button>
+      <div id="ehr-voice-status" class="ehr-status" aria-live="polite"></div>
+      <pre id="ehr-voice-result" class="ehr-result" style="display:none;"></pre>
+    </div>
+
+    <div class="ehr-tool">
+      <h2>Image</h2>
+      <p>Upload an image (e.g. scanned form or photo); the app will extract text and return structured JSON.</p>
+      <input type="file" id="ehr-image-input" accept=".jpg,.jpeg,.png,.gif,.webp,image/*" class="ehr-file-input" />
+      <button type="button" id="ehr-image-btn" class="btn-primary">Extract from image</button>
+      <div id="ehr-image-status" class="ehr-status" aria-live="polite"></div>
+      <pre id="ehr-image-result" class="ehr-result" style="display:none;"></pre>
     </div>
 
     <h2>Install</h2>
@@ -141,6 +169,126 @@ python ehr_server.py</code></pre>
             })
             .finally(function() {
               btn.disabled = false;
+            });
+        });
+      }
+      var docBtn = document.getElementById('ehr-doc-btn');
+      var fileInput = document.getElementById('ehr-file-input');
+      var docStatus = document.getElementById('ehr-doc-status');
+      var docResult = document.getElementById('ehr-doc-result');
+      if (docBtn && fileInput) {
+        docBtn.addEventListener('click', function() {
+          var file = fileInput.files && fileInput.files[0];
+          docStatus.textContent = '';
+          docStatus.className = 'ehr-status';
+          docResult.style.display = 'none';
+          if (!file) {
+            docStatus.textContent = 'Please choose a PDF file.';
+            docStatus.className = 'ehr-status error';
+            return;
+          }
+          docStatus.textContent = 'Extracting…';
+          docBtn.disabled = true;
+          var form = new FormData();
+          form.append('file', file);
+          fetch('/api/extract-document', { method: 'POST', body: form })
+            .then(function(r) {
+              return r.json().then(function(data) {
+                if (!r.ok) throw new Error(data.error || r.statusText);
+                return data;
+              });
+            })
+            .then(function(data) {
+              docStatus.textContent = 'Done.';
+              docResult.textContent = JSON.stringify(data, null, 2);
+              docResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              docStatus.textContent = 'Error: ' + (err.message || String(err));
+              docStatus.className = 'ehr-status error';
+            })
+            .finally(function() {
+              docBtn.disabled = false;
+            });
+        });
+      }
+      var voiceBtn = document.getElementById('ehr-voice-btn');
+      var voiceInput = document.getElementById('ehr-voice-input');
+      var voiceStatus = document.getElementById('ehr-voice-status');
+      var voiceResult = document.getElementById('ehr-voice-result');
+      if (voiceBtn && voiceInput) {
+        voiceBtn.addEventListener('click', function() {
+          var file = voiceInput.files && voiceInput.files[0];
+          voiceStatus.textContent = '';
+          voiceStatus.className = 'ehr-status';
+          voiceResult.style.display = 'none';
+          if (!file) {
+            voiceStatus.textContent = 'Please choose an audio file.';
+            voiceStatus.className = 'ehr-status error';
+            return;
+          }
+          voiceStatus.textContent = 'Extracting…';
+          voiceBtn.disabled = true;
+          var form = new FormData();
+          form.append('file', file);
+          fetch('/api/extract-voice', { method: 'POST', body: form })
+            .then(function(r) {
+              return r.json().then(function(data) {
+                if (!r.ok) throw new Error(data.error || r.statusText);
+                return data;
+              });
+            })
+            .then(function(data) {
+              voiceStatus.textContent = 'Done.';
+              voiceResult.textContent = JSON.stringify(data, null, 2);
+              voiceResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              voiceStatus.textContent = 'Error: ' + (err.message || String(err));
+              voiceStatus.className = 'ehr-status error';
+            })
+            .finally(function() {
+              voiceBtn.disabled = false;
+            });
+        });
+      }
+      var imageBtn = document.getElementById('ehr-image-btn');
+      var imageInput = document.getElementById('ehr-image-input');
+      var imageStatus = document.getElementById('ehr-image-status');
+      var imageResult = document.getElementById('ehr-image-result');
+      if (imageBtn && imageInput) {
+        imageBtn.addEventListener('click', function() {
+          var file = imageInput.files && imageInput.files[0];
+          imageStatus.textContent = '';
+          imageStatus.className = 'ehr-status';
+          imageResult.style.display = 'none';
+          if (!file) {
+            imageStatus.textContent = 'Please choose an image file.';
+            imageStatus.className = 'ehr-status error';
+            return;
+          }
+          imageStatus.textContent = 'Extracting…';
+          imageBtn.disabled = true;
+          var form = new FormData();
+          form.append('file', file);
+          fetch('/api/extract-image', { method: 'POST', body: form })
+            .then(function(r) {
+              return r.json().then(function(data) {
+                if (!r.ok) throw new Error(data.error || r.statusText);
+                return data;
+              });
+            })
+            .then(function(data) {
+              imageStatus.textContent = 'Done.';
+              imageResult.textContent = JSON.stringify(data, null, 2);
+              imageResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              imageStatus.textContent = 'Error: ' + (err.message || String(err));
+              imageStatus.className = 'ehr-status error';
+            })
+            .finally(function() {
+              imageBtn.disabled = false;
             });
         });
       }

@@ -1,7 +1,11 @@
 """
 Vercel serverless function: POST /api/extract-text
 Uses ehr_conversion to extract structured EHR from text. Always on when deployed.
-Set GOOGLE_CLOUD_PROJECT (and optionally GOOGLE_CLOUD_BUCKET) in Vercel env.
+
+Required in Vercel env:
+  GOOGLE_APPLICATION_CREDENTIALS_JSON = full JSON key of a GCP service account (so Vertex AI can auth)
+Optional:
+  GOOGLE_CLOUD_PROJECT (default: penfield-ai-dev), GOOGLE_CLOUD_BUCKET (default: penfield-dev)
 """
 import json
 import os
@@ -11,6 +15,23 @@ import sys
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
+
+
+def _setup_gcp_credentials():
+    """If GOOGLE_APPLICATION_CREDENTIALS_JSON is set, write to /tmp and set ADC."""
+    key_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not key_json:
+        return
+    try:
+        # Validate it's JSON
+        json.loads(key_json)
+        path = "/tmp/gcp-creds.json"
+        with open(path, "w") as f:
+            f.write(key_json)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
+    except Exception:
+        pass
+
 
 from http.server import BaseHTTPRequestHandler
 
@@ -53,6 +74,7 @@ class handler(BaseHTTPRequestHandler):
 
         project = os.environ.get("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
         bucket = os.environ.get("GOOGLE_CLOUD_BUCKET", "penfield-dev")
+        _setup_gcp_credentials()
 
         try:
             from ehr_conversion import EHRConverter
