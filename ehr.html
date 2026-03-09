@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EHR Conversion — App Library</title>
+  <link rel="stylesheet" href="/styles.css?v=5" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    .app-library-page { padding: 6rem 4rem 4rem; max-width: 800px; margin: 0 auto; }
+    .app-library-page h1 { font-family: var(--font-display); font-size: 1.75rem; margin-bottom: 0.5rem; }
+    .app-library-page .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem; }
+    .app-library-page h2 { font-family: var(--font-display); font-size: 1.1rem; margin: 1.5rem 0 0.75rem; color: var(--accent5); }
+    .app-library-page pre { background: var(--surface); border: 1px solid var(--border); padding: 1rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+    .app-library-page code { font-family: var(--font-mono); }
+    .app-library-page p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; margin-bottom: 0.75rem; }
+    .app-library-page ul { color: var(--text-muted); font-size: 0.9rem; margin: 0.5rem 0 1rem 1.25rem; }
+    .app-library-page a { color: var(--accent5); }
+    .app-library-page .back-link { display: inline-block; margin-bottom: 1.5rem; color: var(--text-muted); text-decoration: none; font-size: 0.85rem; }
+    .app-library-page .back-link:hover { color: var(--accent5); }
+    .ehr-tool { margin-bottom: 2.5rem; padding: 1.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .ehr-tool h2 { margin-top: 0; }
+    .ehr-textarea { width: 100%; min-height: 100px; margin: 0.75rem 0; padding: 0.75rem; background: var(--bg2); border: 1px solid var(--border); color: var(--text); font-family: var(--font-mono); font-size: 0.85rem; resize: vertical; box-sizing: border-box; }
+    .ehr-textarea::placeholder { color: var(--text-muted); }
+    .ehr-textarea:focus { outline: none; border-color: var(--accent5); }
+    .ehr-status { margin: 0.75rem 0; font-size: 0.85rem; color: var(--text-muted); }
+    .ehr-status.error { color: #ff6b6b; }
+    .ehr-result { margin-top: 1rem; padding: 1rem; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="profile-page">
+  <canvas id="bg-canvas"></canvas>
+
+  <nav class="nav">
+    <div class="nav-logo">
+      <a href="index.html" class="nav-logo-link">
+        <span class="logo-bracket">[</span>HK<span class="logo-bracket">]</span>
+        <span class="logo-text">HOTKEYS SOLUTION</span>
+      </a>
+    </div>
+    <div class="nav-links">
+      <a href="profile.html">Hub</a>
+      <a href="#" id="sign-out-link" class="nav-signout">Sign out</a>
+    </div>
+  </nav>
+
+  <main class="profile-main app-library-page">
+    <a href="profile.html" class="back-link">← Back to app library</a>
+    <h1>EHR Conversion</h1>
+    <p class="subtitle">Reusable unstructured → structured EHR conversion (Vertex AI / Gemini). Use from any Python app.</p>
+
+    <div class="ehr-tool">
+      <h2>Extract from text</h2>
+      <p>Paste patient or clinical text below; the app will return structured JSON (name, address, email, phone, etc.). Requires the EHR server and <code>GOOGLE_CLOUD_PROJECT</code> (see below).</p>
+      <textarea id="ehr-text-input" class="ehr-textarea" placeholder="e.g. Patient Jane Doe, 123 Main St, Springfield, IL. Contact jane@example.com or (555) 123-4567." rows="4"></textarea>
+      <button type="button" id="ehr-extract-btn" class="btn-primary">Extract from text</button>
+      <div id="ehr-status" class="ehr-status" aria-live="polite"></div>
+      <pre id="ehr-result" class="ehr-result" style="display:none;"></pre>
+    </div>
+
+    <h2>Install</h2>
+    <pre><code>pip install google-cloud-aiplatform google-cloud-storage</code></pre>
+
+    <h2>Minimal usage</h2>
+    <p>In your app, import and create a converter with your GCP project and bucket:</p>
+    <pre><code>from ehr_conversion import EHRConverter
+
+converter = EHRConverter(project="your-gcp-project", bucket="your-bucket")
+
+# Text → structured EHR
+data = converter.extract_from_text("Patient Jane Doe, 123 Main St, jane@example.com")
+
+# PDF → structured EHR
+data = converter.extract_from_document("/path/to/clinical_note.pdf")</code></pre>
+
+    <h2>Run the working app (this page)</h2>
+    <p>From the project root, set your GCP project and run the EHR server. Then use the “Extract from text” form above.</p>
+    <pre><code>export GOOGLE_CLOUD_PROJECT=your-gcp-project
+source .venv/bin/activate
+pip install -r requirements.txt
+python ehr_server.py</code></pre>
+    <p>Open <code>http://localhost:5000</code>, sign in, go to Hub → EHR Conversion, paste text, and click Extract.</p>
+
+    <h2>Adding the module to your project</h2>
+    <ul>
+      <li>Copy <code>ehr_conversion.py</code> into your project and import as above, or</li>
+      <li>Add a <code>pyproject.toml</code> (or <code>setup.py</code>) to this repo and install with <code>pip install -e /path/to/penfield-ai-main</code>, then import as in the examples.</li>
+    </ul>
+    <p>Set <code>GOOGLE_CLOUD_PROJECT</code> (or pass <code>project=</code> to <code>EHRConverter</code>). For document/audio inputs, a GCS bucket is required for uploads.</p>
+  </main>
+
+  <script src="/auth.js?v=1"></script>
+  <script>
+    (function() {
+      if (!auth.isLoggedIn()) {
+        window.location.replace('signin.html');
+        return;
+      }
+      document.getElementById('sign-out-link').addEventListener('click', function(e) {
+        e.preventDefault();
+        auth.signOut();
+        window.location.replace('signin.html');
+      });
+
+      var btn = document.getElementById('ehr-extract-btn');
+      var input = document.getElementById('ehr-text-input');
+      var status = document.getElementById('ehr-status');
+      var resultEl = document.getElementById('ehr-result');
+      if (btn && input) {
+        btn.addEventListener('click', function() {
+          var text = (input.value || '').trim();
+          status.textContent = '';
+          status.className = 'ehr-status';
+          resultEl.style.display = 'none';
+          if (!text) {
+            status.textContent = 'Please enter some text.';
+            status.className = 'ehr-status error';
+            return;
+          }
+          status.textContent = 'Extracting…';
+          btn.disabled = true;
+          fetch('/api/extract-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text })
+          })
+            .then(function(r) {
+              return r.json().then(function(data) {
+                if (!r.ok) throw new Error(data.error || r.statusText);
+                return data;
+              });
+            })
+            .then(function(data) {
+              status.textContent = 'Done.';
+              resultEl.textContent = JSON.stringify(data, null, 2);
+              resultEl.style.display = 'block';
+            })
+            .catch(function(err) {
+              status.textContent = 'Error: ' + (err.message || String(err));
+              status.className = 'ehr-status error';
+            })
+            .finally(function() {
+              btn.disabled = false;
+            });
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

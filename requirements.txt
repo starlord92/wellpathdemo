@@ -1,0 +1,6 @@
+# EHR Conversion (ehr_conversion.py) dependencies
+google-cloud-aiplatform>=1.38.0
+google-cloud-storage>=2.0.0
+
+# EHR web app server (ehr_server.py)
+flask>=2.0.0

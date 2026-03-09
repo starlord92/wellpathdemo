@@ -16,6 +16,7 @@
   --accent2: #47b4ff;
   --accent3: #ff6b47;
   --accent4: #b47cff;
+  --accent5: #2dd4bf;
   --font-display: 'Syne', sans-serif;
   --font-mono: 'DM Mono', monospace;
   --glow: 0 0 40px rgba(232,255,71,0.15);
@@ -872,6 +873,7 @@ body::after {
 .app-tile-2 .app-tile-icon { color: var(--accent2); }
 .app-tile-3 .app-tile-icon { color: var(--accent3); }
 .app-tile-4 .app-tile-icon { color: var(--accent4); }
+.app-tile-5 .app-tile-icon { color: var(--accent5); }
 
 /* MARCo iframe section */
 .profile-marco {
