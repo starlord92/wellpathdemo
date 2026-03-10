@@ -27,9 +27,14 @@
     .ehr-status.error { color: #ff6b6b; }
     .ehr-result { margin-top: 1rem; padding: 1rem; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
     .ehr-file-input { margin: 0.75rem 0; display: block; color: var(--text-muted); font-size: 0.85rem; }
+    /* Show default cursor on EHR (page does not load app.js so custom cursor would be invisible) */
+    body.ehr-page { cursor: auto; }
+    body.ehr-page::after { display: none; }
+    body.ehr-page .btn-primary { cursor: pointer; }
+    body.ehr-page a { cursor: pointer; }
   </style>
 </head>
-<body class="profile-page">
+<body class="profile-page ehr-page">
   <canvas id="bg-canvas"></canvas>
 
   <nav class="nav">
