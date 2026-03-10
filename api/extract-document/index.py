@@ -83,7 +83,7 @@ def _parse_multipart(content_type, body):
 
 
 def _get_request_body(handler):
-    """Read POST body; Vercel may send Content-Length in different casing."""
+    """Read POST body; Vercel may send Content-Length in different casing or not at all."""
     length = 0
     for key in ("Content-Length", "content-length"):
         try:
@@ -92,7 +92,16 @@ def _get_request_body(handler):
         except (TypeError, ValueError):
             pass
     if length > 0:
-        return handler.rfile.read(length)
+        body = handler.rfile.read(length)
+        if body:
+            return body
+    # Vercel sometimes doesn't pass body via rfile; try reading remainder (up to 6MB)
+    try:
+        rest = handler.rfile.read(6 * 1024 * 1024)
+        if rest:
+            return rest
+    except Exception:
+        pass
     return b""
 
 
@@ -103,11 +112,45 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             body = _get_request_body(self)
-            content_type = self.headers.get("Content-Type") or self.headers.get("content-type") or ""
-            file_bytes, filename = _parse_multipart(content_type, body)
+            content_type = (self.headers.get("Content-Type") or self.headers.get("content-type") or "").strip().lower()
+            file_bytes = None
+            filename = "upload.pdf"
+
+            # Optional: JSON body with "url" (works on Vercel where multipart body may be missing)
+            if content_type and "application/json" in content_type and body:
+                try:
+                    data = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
+                    url = isinstance(data, dict) and (data.get("url") or "").strip()
+                    if url and url.startswith("http"):
+                        import urllib.request
+                        req = urllib.request.Request(url, headers={"User-Agent": "EHR-Converter/1.0"})
+                        with urllib.request.urlopen(req, timeout=60) as resp:
+                            file_bytes = resp.read()
+                        cd = resp.headers.get("Content-Disposition") or resp.headers.get("content-disposition") or ""
+                        if "filename=" in cd:
+                            import re as _re
+                            m = _re.search(r"filename\s*=\s*[\"']?([^\"'\s;]+)", cd, _re.I)
+                            if m:
+                                filename = m.group(1).strip()
+                        if not filename or filename == "upload.pdf":
+                            from urllib.parse import urlparse
+                            p = urlparse(url)
+                            name = (p.path or "").strip("/").split("/")[-1]
+                            if name and "." in name:
+                                filename = name
+                except Exception as e:
+                    _send_headers(self, 400)
+                    self.wfile.write(json.dumps({"error": "Invalid or unreachable URL: " + str(e)}).encode("utf-8"))
+                    return
+
+            if not file_bytes:
+                file_bytes, filename = _parse_multipart(content_type, body)
             if not file_bytes:
                 _send_headers(self, 400)
-                self.wfile.write(json.dumps({"error": "Missing file. Send multipart/form-data with 'file' or 'document'."}).encode("utf-8"))
+                diag = ""
+                if not body and content_type and "multipart" in content_type:
+                    diag = " Use the URL option: upload your file to a public URL (e.g. Vercel Blob, imgur) and POST JSON {\"url\": \"https://...\"}."
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'document', or JSON {\"url\": \"https://...\"}." + diag}).encode("utf-8"))
                 return
 
             tmp_path = os.path.join("/tmp", filename or "upload.pdf")

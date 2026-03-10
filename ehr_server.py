@@ -70,16 +70,57 @@ def extract_text():
         return jsonify({"error": str(e)}), 500
 
 
-def _file_upload_route(field_names, run_extract):
-    """Helper: get uploaded file from request, save to temp file, call run_extract(path), then delete temp file."""
+def _fetch_url_to_path(url, default_suffix=".bin"):
+    """Fetch URL to a temp file; return (path, suffix) or raise."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "EHR-Converter/1.0"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = resp.read()
+    cd = resp.headers.get("Content-Disposition") or ""
+    filename = "upload" + default_suffix
+    if "filename=" in cd:
+        import re
+        m = re.search(r"filename\s*=\s*[\"']?([^\"'\s;]+)", cd, re.I)
+        if m:
+            filename = m.group(1).strip()
+    if filename == "upload" + default_suffix and url:
+        from urllib.parse import urlparse
+        name = (urlparse(url).path or "").strip("/").split("/")[-1]
+        if name and "." in name:
+            filename = name
+    suffix = os.path.splitext(filename)[1] or default_suffix
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    with os.fdopen(fd, "wb") as out:
+        out.write(data)
+    return path
+
+
+def _file_upload_route(field_names, run_extract, default_suffix=".bin"):
+    """Helper: JSON url or multipart file -> temp file -> run_extract(path)."""
+    if request.content_type and "application/json" in request.content_type:
+        try:
+            data = request.get_json(force=True, silent=True) or {}
+            url = (data.get("url") or "").strip()
+            if url and url.startswith("http"):
+                path = _fetch_url_to_path(url, default_suffix)
+                try:
+                    return jsonify(run_extract(path))
+                finally:
+                    try:
+                        os.unlink(path)
+                    except Exception:
+                        pass
+        except Exception as e:
+            return jsonify({"error": "Invalid or unreachable URL: " + str(e)}), 400
+
     f = None
     for name in field_names:
         f = request.files.get(name)
         if f and f.filename:
             break
     if not f or not f.filename:
-        return jsonify({"error": "Missing file. Send multipart with one of: " + ", ".join(field_names)}), 400
-    suffix = os.path.splitext(f.filename)[1] or ".bin"
+        return jsonify({"error": "Missing file. Send multipart with one of: " + ", ".join(field_names) + ', or JSON {"url": "https://..."}'}), 400
+    suffix = os.path.splitext(f.filename)[1] or default_suffix
     fd, path = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as out:
@@ -96,12 +137,12 @@ def _file_upload_route(field_names, run_extract):
 
 @app.route("/api/extract-document", methods=["POST"])
 def extract_document():
-    """Extract structured EHR from uploaded PDF."""
+    """Extract structured EHR from uploaded PDF or from URL."""
     def run(path):
         from ehr_conversion import EHRConverter
         converter = EHRConverter(project=GCP_PROJECT, bucket=GCP_BUCKET)
         return converter.extract_from_document(path, mime_type="application/pdf", upload_to_gcs=True)
-    return _file_upload_route(("file", "document"), run)
+    return _file_upload_route(("file", "document"), run, ".pdf")
 
 
 @app.route("/api/extract-voice", methods=["POST"])
@@ -117,7 +158,7 @@ def extract_voice():
         elif ext == ".webm":
             mime = "audio/webm"
         return converter.extract_from_audio(path, mime_type=mime, upload_to_gcs=True)
-    return _file_upload_route(("file", "audio", "voice"), run)
+    return _file_upload_route(("file", "audio", "voice"), run, ".mp3")
 
 
 @app.route("/api/extract-image", methods=["POST"])
@@ -140,7 +181,7 @@ def extract_image():
         result = converter.extract_from_text(text)
         result["extracted_text"] = text
         return result
-    return _file_upload_route(("file", "image"), run)
+    return _file_upload_route(("file", "image"), run, ".jpg")
 
 
 @app.route("/<path:path>")

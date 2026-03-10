@@ -27,6 +27,7 @@
     .ehr-status.error { color: #ff6b6b; }
     .ehr-result { margin-top: 1rem; padding: 1rem; max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
     .ehr-file-input { margin: 0.75rem 0; display: block; color: var(--text-muted); font-size: 0.85rem; }
+    .ehr-url-hint { font-size: 0.8rem; color: var(--text-muted); margin: 1rem 0 0.25rem; }
     /* Show default cursor on EHR (page does not load app.js so custom cursor would be invisible) */
     body.ehr-page { cursor: auto; }
     body.ehr-page::after { display: none; }
@@ -69,6 +70,9 @@
       <p>Upload a clinical note or document (PDF); the app will extract structured information and return JSON.</p>
       <input type="file" id="ehr-file-input" accept=".pdf,application/pdf" class="ehr-file-input" />
       <button type="button" id="ehr-doc-btn" class="btn-primary">Extract from PDF</button>
+      <p class="ehr-url-hint">Or paste a public URL (use this if file upload fails on Vercel):</p>
+      <input type="url" id="ehr-doc-url-input" class="ehr-textarea" placeholder="https://..." style="min-height:36px;margin-bottom:0.5rem;" />
+      <button type="button" id="ehr-doc-url-btn" class="btn-primary">Extract from URL</button>
       <div id="ehr-doc-status" class="ehr-status" aria-live="polite"></div>
       <pre id="ehr-doc-result" class="ehr-result" style="display:none;"></pre>
     </div>
@@ -78,6 +82,9 @@
       <p>Upload an audio file (MP3, WAV, M4A, WebM); the app will transcribe and extract structured EHR from the transcription.</p>
       <input type="file" id="ehr-voice-input" accept=".mp3,.wav,.m4a,.webm,audio/*" class="ehr-file-input" />
       <button type="button" id="ehr-voice-btn" class="btn-primary">Extract from voice</button>
+      <p class="ehr-url-hint">Or paste a public URL:</p>
+      <input type="url" id="ehr-voice-url-input" class="ehr-textarea" placeholder="https://..." style="min-height:36px;margin-bottom:0.5rem;" />
+      <button type="button" id="ehr-voice-url-btn" class="btn-primary">Extract from URL</button>
       <div id="ehr-voice-status" class="ehr-status" aria-live="polite"></div>
       <pre id="ehr-voice-result" class="ehr-result" style="display:none;"></pre>
     </div>
@@ -87,6 +94,9 @@
       <p>Upload an image (e.g. scanned form or photo); the app will extract text and return structured JSON.</p>
       <input type="file" id="ehr-image-input" accept=".jpg,.jpeg,.png,.gif,.webp,image/*" class="ehr-file-input" />
       <button type="button" id="ehr-image-btn" class="btn-primary">Extract from image</button>
+      <p class="ehr-url-hint">Or paste a public URL:</p>
+      <input type="url" id="ehr-image-url-input" class="ehr-textarea" placeholder="https://..." style="min-height:36px;margin-bottom:0.5rem;" />
+      <button type="button" id="ehr-image-url-btn" class="btn-primary">Extract from URL</button>
       <div id="ehr-image-status" class="ehr-status" aria-live="polite"></div>
       <pre id="ehr-image-result" class="ehr-result" style="display:none;"></pre>
     </div>
@@ -187,6 +197,39 @@
             });
         });
       }
+      var docUrlBtn = document.getElementById('ehr-doc-url-btn');
+      var docUrlInput = document.getElementById('ehr-doc-url-input');
+      if (docUrlBtn && docUrlInput) {
+        docUrlBtn.addEventListener('click', function() {
+          var url = (docUrlInput.value || '').trim();
+          docStatus.textContent = '';
+          docStatus.className = 'ehr-status';
+          docResult.style.display = 'none';
+          if (!url || !url.startsWith('http')) {
+            docStatus.textContent = 'Please enter a valid public URL.';
+            docStatus.className = 'ehr-status error';
+            return;
+          }
+          docStatus.textContent = 'Extracting…';
+          docUrlBtn.disabled = true;
+          fetch('/api/extract-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+          })
+            .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || r.statusText); return d; }); })
+            .then(function(data) {
+              docStatus.textContent = 'Done.';
+              docResult.textContent = JSON.stringify(data, null, 2);
+              docResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              docStatus.textContent = 'Error: ' + (err.message || String(err));
+              docStatus.className = 'ehr-status error';
+            })
+            .finally(function() { docUrlBtn.disabled = false; });
+        });
+      }
       var voiceBtn = document.getElementById('ehr-voice-btn');
       var voiceInput = document.getElementById('ehr-voice-input');
       var voiceStatus = document.getElementById('ehr-voice-status');
@@ -227,6 +270,39 @@
             });
         });
       }
+      var voiceUrlBtn = document.getElementById('ehr-voice-url-btn');
+      var voiceUrlInput = document.getElementById('ehr-voice-url-input');
+      if (voiceUrlBtn && voiceUrlInput) {
+        voiceUrlBtn.addEventListener('click', function() {
+          var url = (voiceUrlInput.value || '').trim();
+          voiceStatus.textContent = '';
+          voiceStatus.className = 'ehr-status';
+          voiceResult.style.display = 'none';
+          if (!url || !url.startsWith('http')) {
+            voiceStatus.textContent = 'Please enter a valid public URL.';
+            voiceStatus.className = 'ehr-status error';
+            return;
+          }
+          voiceStatus.textContent = 'Extracting…';
+          voiceUrlBtn.disabled = true;
+          fetch('/api/extract-voice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+          })
+            .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || r.statusText); return d; }); })
+            .then(function(data) {
+              voiceStatus.textContent = 'Done.';
+              voiceResult.textContent = JSON.stringify(data, null, 2);
+              voiceResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              voiceStatus.textContent = 'Error: ' + (err.message || String(err));
+              voiceStatus.className = 'ehr-status error';
+            })
+            .finally(function() { voiceUrlBtn.disabled = false; });
+        });
+      }
       var imageBtn = document.getElementById('ehr-image-btn');
       var imageInput = document.getElementById('ehr-image-input');
       var imageStatus = document.getElementById('ehr-image-status');
@@ -265,6 +341,39 @@
             .finally(function() {
               imageBtn.disabled = false;
             });
+        });
+      }
+      var imageUrlBtn = document.getElementById('ehr-image-url-btn');
+      var imageUrlInput = document.getElementById('ehr-image-url-input');
+      if (imageUrlBtn && imageUrlInput) {
+        imageUrlBtn.addEventListener('click', function() {
+          var url = (imageUrlInput.value || '').trim();
+          imageStatus.textContent = '';
+          imageStatus.className = 'ehr-status';
+          imageResult.style.display = 'none';
+          if (!url || !url.startsWith('http')) {
+            imageStatus.textContent = 'Please enter a valid public URL.';
+            imageStatus.className = 'ehr-status error';
+            return;
+          }
+          imageStatus.textContent = 'Extracting…';
+          imageUrlBtn.disabled = true;
+          fetch('/api/extract-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+          })
+            .then(function(r) { return r.json().then(function(d) { if (!r.ok) throw new Error(d.error || r.statusText); return d; }); })
+            .then(function(data) {
+              imageStatus.textContent = 'Done.';
+              imageResult.textContent = JSON.stringify(data, null, 2);
+              imageResult.style.display = 'block';
+            })
+            .catch(function(err) {
+              imageStatus.textContent = 'Error: ' + (err.message || String(err));
+              imageStatus.className = 'ehr-status error';
+            })
+            .finally(function() { imageUrlBtn.disabled = false; });
         });
       }
     })();

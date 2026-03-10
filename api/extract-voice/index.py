@@ -63,7 +63,17 @@ def _get_request_body(handler):
             break
         except (TypeError, ValueError):
             pass
-    return handler.rfile.read(length) if length > 0 else b""
+    if length > 0:
+        body = handler.rfile.read(length)
+        if body:
+            return body
+    try:
+        rest = handler.rfile.read(6 * 1024 * 1024)
+        if rest:
+            return rest
+    except Exception:
+        pass
+    return b""
 
 def _parse_multipart(content_type, body):
     if _parse_mp:
@@ -106,11 +116,41 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             body = _get_request_body(self)
-            content_type = self.headers.get("Content-Type") or self.headers.get("content-type") or ""
-            file_bytes, filename = _parse_multipart(content_type, body)
+            content_type = (self.headers.get("Content-Type") or self.headers.get("content-type") or "").strip().lower()
+            file_bytes = None
+            filename = "upload.mp3"
+
+            if content_type and "application/json" in content_type and body:
+                try:
+                    data = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
+                    url = isinstance(data, dict) and (data.get("url") or "").strip()
+                    if url and url.startswith("http"):
+                        import urllib.request
+                        req = urllib.request.Request(url, headers={"User-Agent": "EHR-Converter/1.0"})
+                        with urllib.request.urlopen(req, timeout=60) as resp:
+                            file_bytes = resp.read()
+                        cd = resp.headers.get("Content-Disposition") or resp.headers.get("content-disposition") or ""
+                        if "filename=" in cd:
+                            import re as _re
+                            m = _re.search(r"filename\s*=\s*[\"']?([^\"'\s;]+)", cd, _re.I)
+                            if m:
+                                filename = m.group(1).strip()
+                        if not filename or filename == "upload.mp3":
+                            from urllib.parse import urlparse
+                            p = urlparse(url)
+                            name = (p.path or "").strip("/").split("/")[-1]
+                            if name and "." in name:
+                                filename = name
+                except Exception as e:
+                    _send_headers(self, 400)
+                    self.wfile.write(json.dumps({"error": "Invalid or unreachable URL: " + str(e)}).encode("utf-8"))
+                    return
+
+            if not file_bytes:
+                file_bytes, filename = _parse_multipart(content_type, body)
             if not file_bytes:
                 _send_headers(self, 400)
-                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file', 'audio', or 'voice'."}).encode("utf-8"))
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file', 'audio', or 'voice', or JSON {\"url\": \"https://...\"}."}).encode("utf-8"))
                 return
 
             tmp_path = os.path.join("/tmp", filename or "upload.mp3")
