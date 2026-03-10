@@ -112,7 +112,8 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             body = _get_request_body(self)
-            content_type = (self.headers.get("Content-Type") or self.headers.get("content-type") or "").strip().lower()
+            content_type_raw = (self.headers.get("Content-Type") or self.headers.get("content-type") or "").strip()
+            content_type = content_type_raw.lower()
             file_bytes = None
             filename = "upload.pdf"
 
@@ -144,13 +145,13 @@ class handler(BaseHTTPRequestHandler):
                     return
 
             if not file_bytes:
-                file_bytes, filename = _parse_multipart(content_type, body)
+                file_bytes, filename = _parse_multipart(content_type_raw, body)
             if not file_bytes:
                 _send_headers(self, 400)
                 diag = ""
                 if not body and content_type and "multipart" in content_type:
                     diag = " Use the URL option: upload your file to a public URL (e.g. Vercel Blob, imgur) and POST JSON {\"url\": \"https://...\"}."
-                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'document', or JSON {\"url\": \"https://...\"}." + diag, "debug_body_len": len(body), "debug_content_type": content_type, "debug_body_prefix": body[:120].decode("latin-1") if body else ""}).encode("utf-8"))
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'document', or JSON {\"url\": \"https://...\"}." + diag}).encode("utf-8"))
                 return
 
             tmp_path = os.path.join("/tmp", filename or "upload.pdf")
