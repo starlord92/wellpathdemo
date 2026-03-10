@@ -85,36 +85,6 @@
       <div id="ehr-image-status" class="ehr-status" aria-live="polite"></div>
       <pre id="ehr-image-result" class="ehr-result" style="display:none;"></pre>
     </div>
-
-    <h2>Install</h2>
-    <pre><code>pip install google-cloud-aiplatform google-cloud-storage</code></pre>
-
-    <h2>Minimal usage</h2>
-    <p>In your app, import and create a converter with your GCP project and bucket:</p>
-    <pre><code>from ehr_conversion import EHRConverter
-
-converter = EHRConverter(project="your-gcp-project", bucket="your-bucket")
-
-# Text → structured EHR
-data = converter.extract_from_text("Patient Jane Doe, 123 Main St, jane@example.com")
-
-# PDF → structured EHR
-data = converter.extract_from_document("/path/to/clinical_note.pdf")</code></pre>
-
-    <h2>Run the working app (this page)</h2>
-    <p>From the project root, set your GCP project and run the EHR server. Then use the “Extract from text” form above.</p>
-    <pre><code>export GOOGLE_CLOUD_PROJECT=your-gcp-project
-source .venv/bin/activate
-pip install -r requirements.txt
-python ehr_server.py</code></pre>
-    <p>Open <code>http://localhost:5000</code>, sign in, go to Hub → EHR Conversion, paste text, and click Extract.</p>
-
-    <h2>Adding the module to your project</h2>
-    <ul>
-      <li>Copy <code>ehr_conversion.py</code> into your project and import as above, or</li>
-      <li>Add a <code>pyproject.toml</code> (or <code>setup.py</code>) to this repo and install with <code>pip install -e /path/to/penfield-ai-main</code>, then import as in the examples.</li>
-    </ul>
-    <p>Set <code>GOOGLE_CLOUD_PROJECT</code> (or pass <code>project=</code> to <code>EHRConverter</code>). For document/audio inputs, a GCS bucket is required for uploads.</p>
   </main>
 
   <script src="/auth.js?v=1"></script>
