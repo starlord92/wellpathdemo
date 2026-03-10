@@ -8,8 +8,17 @@ import sys
 from io import BytesIO
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_api = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _root not in sys.path:
     sys.path.insert(0, _root)
+if _api not in sys.path:
+    sys.path.insert(0, _api)
+
+# Shared multipart parser (works on Vercel where cgi can fail)
+try:
+    from _multipart import parse_multipart as _parse_mp
+except Exception:
+    _parse_mp = None
 
 
 def _setup_gcp_credentials():
@@ -49,13 +58,15 @@ def _send_headers(self, status_code=200):
 
 def _parse_multipart(content_type, body):
     """Parse multipart/form-data and return (file_bytes, filename) or (None, None)."""
-    if not content_type or "multipart/form-data" not in content_type:
-        return None, None
+    if _parse_mp:
+        out = _parse_mp(content_type, body, ("file", "document"))
+        if out[0] is not None:
+            return out
     try:
         import cgi
         env = {
             "REQUEST_METHOD": "POST",
-            "CONTENT_TYPE": content_type,
+            "CONTENT_TYPE": content_type or "",
             "CONTENT_LENGTH": str(len(body)),
         }
         fs = cgi.FieldStorage(fp=BytesIO(body), environ=env, keep_blank_values=True)
@@ -71,51 +82,68 @@ def _parse_multipart(content_type, body):
         return None, None
 
 
+def _get_request_body(handler):
+    """Read POST body; Vercel may send Content-Length in different casing."""
+    length = 0
+    for key in ("Content-Length", "content-length"):
+        try:
+            length = int(handler.headers.get(key, 0) or 0)
+            break
+        except (TypeError, ValueError):
+            pass
+    if length > 0:
+        return handler.rfile.read(length)
+    return b""
+
+
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         _send_headers(self, 204)
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        body = self.rfile.read(length) if length else b""
-        content_type = self.headers.get("Content-Type", "")
-        file_bytes, filename = _parse_multipart(content_type, body)
-        if not file_bytes:
-            _send_headers(self, 400)
-            self.wfile.write(json.dumps({"error": "Missing file. Send multipart/form-data with 'file' or 'document'."}).encode("utf-8"))
-            return
-
-        tmp_path = os.path.join("/tmp", filename or "upload.pdf")
         try:
-            with open(tmp_path, "wb") as f:
-                f.write(file_bytes)
-        except Exception as e:
-            _send_headers(self, 500)
-            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-            return
+            body = _get_request_body(self)
+            content_type = self.headers.get("Content-Type") or self.headers.get("content-type") or ""
+            file_bytes, filename = _parse_multipart(content_type, body)
+            if not file_bytes:
+                _send_headers(self, 400)
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart/form-data with 'file' or 'document'."}).encode("utf-8"))
+                return
 
-        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
-        bucket = os.environ.get("GOOGLE_CLOUD_BUCKET", "penfield-dev")
-        err = _setup_gcp_credentials()
-        if err:
-            _send_headers(self, 500)
-            self.wfile.write(json.dumps({"error": err}).encode("utf-8"))
-            return
-
-        try:
-            from ehr_conversion import EHRConverter
-            converter = EHRConverter(project=project, bucket=bucket)
-            result = converter.extract_from_document(tmp_path, mime_type="application/pdf", upload_to_gcs=True)
-            out = json.dumps(result).encode("utf-8")
-        except Exception as e:
-            _send_headers(self, 500)
-            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
-            return
-        finally:
+            tmp_path = os.path.join("/tmp", filename or "upload.pdf")
             try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+                with open(tmp_path, "wb") as f:
+                    f.write(file_bytes)
+            except Exception as e:
+                _send_headers(self, 500)
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
 
-        _send_headers(self, 200)
-        self.wfile.write(out)
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
+            bucket = os.environ.get("GOOGLE_CLOUD_BUCKET", "penfield-dev")
+            err = _setup_gcp_credentials()
+            if err:
+                _send_headers(self, 500)
+                self.wfile.write(json.dumps({"error": err}).encode("utf-8"))
+                return
+
+            try:
+                from ehr_conversion import EHRConverter
+                converter = EHRConverter(project=project, bucket=bucket)
+                result = converter.extract_from_document(tmp_path, mime_type="application/pdf", upload_to_gcs=True)
+                out = json.dumps(result).encode("utf-8")
+            except Exception as e:
+                _send_headers(self, 500)
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+                return
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+            _send_headers(self, 200)
+            self.wfile.write(out)
+        except Exception as e:
+            _send_headers(self, 500)
+            self.wfile.write(json.dumps({"error": "Server error: " + str(e)}).encode("utf-8"))
