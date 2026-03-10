@@ -5,6 +5,7 @@ Requires GOOGLE_APPLICATION_CREDENTIALS_JSON, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD
 import json
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 from io import BytesIO
 
 _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
