@@ -15,36 +15,58 @@ def parse_multipart(content_type, body, field_names):
         return None, None
     if not body:
         return None, None
-    if isinstance(content_type, str):
-        content_type = content_type.encode("utf-8", errors="replace")
+    ct_bytes = ct.encode("utf-8", errors="replace") if isinstance(ct, str) else ct
     if isinstance(body, str):
         body = body.encode("utf-8", errors="replace")
-    # Extract boundary
-    m = re.search(rb"boundary\s*=\s*([^\s;]+)", content_type, re.I)
+    # Extract boundary (preserve original case — boundary values are case-sensitive)
+    m = re.search(rb"boundary\s*=\s*([^\s;]+)", ct_bytes, re.I)
     if not m:
         return None, None
     boundary = m.group(1).strip(b'"\' \t\r\n')
     if not boundary:
         return None, None
-    # Split into parts (first part is preamble before first boundary)
-    sep = b"\r\n--" + boundary
-    parts = body.split(sep)
-    for i, part in enumerate(parts):
-        if i == 0:
-            if part.strip().startswith(b"--"):
-                continue
-            part = part.lstrip(b"\r\n")
-        if part.endswith(b"--\r\n") or part.endswith(b"--"):
-            part = part[:-2].rstrip(b"\r\n")
+
+    delim = b"--" + boundary
+
+    # Find the opening delimiter in the body
+    start = body.find(delim)
+    if start == -1:
+        return None, None
+
+    # Skip past the opening delimiter line (delim + \r\n or \n)
+    pos = start + len(delim)
+    if body[pos:pos + 2] == b"\r\n":
+        pos += 2
+    elif body[pos:pos + 1] == b"\n":
+        pos += 1
+    else:
+        return None, None  # malformed
+
+    # Split the remaining body into parts on \r\n + delim
+    rest = body[pos:]
+    parts = rest.split(b"\r\n" + delim)
+
+    for part in parts:
+        # Strip closing boundary marker suffix (-- or --\r\n)
+        if part.endswith(b"--\r\n"):
+            part = part[:-4]
+        elif part.endswith(b"--"):
+            part = part[:-2]
         if not part:
             continue
+
+        # Split headers from body content
         head_sep = part.find(b"\r\n\r\n")
         if head_sep == -1:
             head_sep = part.find(b"\n\n")
-        if head_sep == -1:
-            continue
-        raw_headers = part[:head_sep]
-        content = part[head_sep + 4:].rstrip(b"\r\n") if head_sep != -1 else b""
+            if head_sep == -1:
+                continue
+            raw_headers = part[:head_sep]
+            content = part[head_sep + 2:].rstrip(b"\r\n")
+        else:
+            raw_headers = part[:head_sep]
+            content = part[head_sep + 4:].rstrip(b"\r\n")
+
         # Parse Content-Disposition for name and filename
         disp = None
         for line in raw_headers.split(b"\n"):
@@ -74,6 +96,6 @@ def parse_multipart(content_type, body, field_names):
             except Exception:
                 filename = "upload.bin"
         if name in field_names and content:
-            fn = filename.decode("utf-8", errors="replace") if isinstance(filename, bytes) else (filename or "upload.bin")
+            fn = filename if isinstance(filename, str) else (filename.decode("utf-8", errors="replace") if filename else "upload.bin")
             return bytes(content), fn
     return None, None
