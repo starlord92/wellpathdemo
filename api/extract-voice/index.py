@@ -150,7 +150,7 @@ class handler(BaseHTTPRequestHandler):
                 file_bytes, filename = _parse_multipart(content_type, body)
             if not file_bytes:
                 _send_headers(self, 400)
-                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file', 'audio', or 'voice', or JSON {\"url\": \"https://...\"}."}).encode("utf-8"))
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file', 'audio', or 'voice', or JSON {\"url\": \"https://...\"}.", "debug_body_len": len(body), "debug_content_type": content_type, "debug_body_prefix": body[:120].decode("latin-1") if body else ""}).encode("utf-8"))
                 return
 
             tmp_path = os.path.join("/tmp", filename or "upload.mp3")

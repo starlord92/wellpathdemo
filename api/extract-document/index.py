@@ -150,7 +150,7 @@ class handler(BaseHTTPRequestHandler):
                 diag = ""
                 if not body and content_type and "multipart" in content_type:
                     diag = " Use the URL option: upload your file to a public URL (e.g. Vercel Blob, imgur) and POST JSON {\"url\": \"https://...\"}."
-                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'document', or JSON {\"url\": \"https://...\"}." + diag}).encode("utf-8"))
+                self.wfile.write(json.dumps({"error": "Missing file. Send multipart with 'file' or 'document', or JSON {\"url\": \"https://...\"}." + diag, "debug_body_len": len(body), "debug_content_type": content_type, "debug_body_prefix": body[:120].decode("latin-1") if body else ""}).encode("utf-8"))
                 return
 
             tmp_path = os.path.join("/tmp", filename or "upload.pdf")
