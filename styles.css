@@ -874,6 +874,7 @@ body::after {
 .app-tile-3 .app-tile-icon { color: var(--accent3); }
 .app-tile-4 .app-tile-icon { color: var(--accent4); }
 .app-tile-5 .app-tile-icon { color: var(--accent5); }
+.app-tile-6 .app-tile-icon { color: var(--accent2); }
 
 /* MARCo iframe section */
 .profile-marco {

@@ -8,12 +8,33 @@ Run from project root:
 
 Then open http://localhost:5000 and sign in; go to Hub -> EHR Conversion.
 """
+import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 # Ensure we can import ehr_conversion from current dir
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def _load_simple_env_file(path):
+    """Load KEY=VALUE lines from .env-like file into os.environ if missing."""
+    try:
+        fp = Path(path)
+        if not fp.exists():
+            return
+        for raw in fp.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            if k and v and not os.environ.get(k):
+                os.environ[k] = v
+    except Exception:
+        pass
 
 
 def _setup_gcp_credentials():
@@ -31,6 +52,10 @@ def _setup_gcp_credentials():
     except Exception:
         pass
 
+
+# Load Anthropic env from common local locations
+_load_simple_env_file("/Users/sumanth/Downloads/grants-rfp-agent/.env.local")
+_load_simple_env_file(".env.local")
 
 _setup_gcp_credentials()
 
@@ -182,6 +207,67 @@ def extract_image():
         result["extracted_text"] = text
         return result
     return _file_upload_route(("file", "image"), run, ".jpg")
+
+
+@app.route("/api/grants/v1/api/search2", methods=["POST"])
+def grants_search_proxy():
+    """Local proxy to Grants.gov search API for grants-rfp-agent."""
+    import urllib.request
+
+    payload = request.get_json(force=True, silent=True) or {}
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.grants.gov/v1/api/search2",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "grants-rfp-agent-local/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace")
+            return app.response_class(text, status=getattr(resp, "status", 200), mimetype="application/json")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/anthropic/v1/messages", methods=["POST"])
+def anthropic_messages_proxy():
+    """Local proxy to Anthropic messages API for grants-rfp-agent."""
+    import urllib.request
+
+    api_key = (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("VITE_ANTHROPIC_API_KEY") or "").strip()
+    if not api_key or not api_key.startswith("sk-ant-"):
+        return jsonify({"error": "Missing or invalid ANTHROPIC_API_KEY (or VITE_ANTHROPIC_API_KEY)."}), 500
+
+    payload = request.get_json(force=True, silent=True) or {}
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "User-Agent": "grants-rfp-agent-local/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            raw = resp.read()
+            text = raw.decode("utf-8", errors="replace")
+            return app.response_class(text, status=getattr(resp, "status", 200), mimetype="application/json")
+    except Exception as e:
+        # bubble more detail (e.g., auth/limit errors from Anthropic)
+        try:
+            import urllib.error
+            if isinstance(e, urllib.error.HTTPError):
+                detail = e.read().decode("utf-8", errors="replace")
+                return app.response_class(detail or json.dumps({"error": str(e)}), status=e.code, mimetype="application/json")
+        except Exception:
+            pass
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/<path:path>")
