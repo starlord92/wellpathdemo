@@ -78,7 +78,11 @@ def _clean_json_response(raw: str) -> str:
 
 
 def _collect_stream(responses) -> str:
-    return "".join(r.text for r in responses)
+    parts = []
+    for r in responses:
+        t = getattr(r, "text", None) or ""
+        parts.append(t)
+    return "".join(parts)
 
 
 class EHRConverter:
@@ -107,6 +111,9 @@ class EHRConverter:
         Extract structured PII/EHR from free text (e.g. one sentence or paragraph).
         Returns a dict; raises on parse error (caller can catch and use raw string).
         """
+        if not (text or "").strip():
+            return {"note": "No text to analyze.", "structured": {}}
+
         self._ensure_vertex()
         model = GenerativeModel(
             "gemini-2.0-flash-001",
@@ -120,7 +127,17 @@ class EHRConverter:
         )
         raw = _collect_stream(responses)
         cleaned = _clean_json_response(raw)
-        return json.loads(cleaned)
+        if not cleaned:
+            raise ValueError(
+                "Model returned empty JSON. If this was from voice, transcription may be missing or blocked. "
+                f"Raw preview: {(raw or '')[:400]!r}"
+            )
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Model output was not valid JSON ({e}). Preview: {cleaned[:500]!r}"
+            ) from e
 
     def extract_from_document(
         self,
@@ -167,7 +184,17 @@ class EHRConverter:
         )
         raw = _collect_stream(responses)
         cleaned = _clean_json_response(raw)
-        return json.loads(cleaned)
+        if not cleaned:
+            raise ValueError(
+                "Model returned empty JSON for document. "
+                f"Raw preview: {(raw or '')[:400]!r}"
+            )
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Document extraction was not valid JSON ({e}). Preview: {cleaned[:500]!r}"
+            ) from e
 
     def extract_from_audio(
         self,
@@ -201,10 +228,18 @@ class EHRConverter:
             safety_settings=SAFETY_SETTINGS,
             stream=True,
         )
-        transcription = _collect_stream(responses)
+        transcription = (_collect_stream(responses) or "").strip()
+        if not transcription:
+            return {
+                "extracted_text": "",
+                "structured": {},
+                "note": "No speech could be transcribed from this audio. Try clearer speech, less background noise, or a supported format (MP3, WAV, M4A, WebM).",
+            }
 
-        # Then extract PII from transcription
-        return self.extract_from_text(transcription)
+        structured = self.extract_from_text(transcription)
+        if isinstance(structured, dict):
+            structured = {**structured, "extracted_text": transcription}
+        return structured
 
     def extract_text_from_image(
         self,
