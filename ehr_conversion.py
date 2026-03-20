@@ -74,6 +74,14 @@ STRUCTURED_JSON_GENERATION_CONFIG = GenerationConfig(
     response_mime_type="application/json",
 )
 
+# Fallback mapping pass for long clinical conversations/transcripts.
+CLINICAL_STRUCTURED_JSON_GENERATION_CONFIG = GenerationConfig(
+    max_output_tokens=8192,
+    temperature=0.2,
+    top_p=0.9,
+    response_mime_type="application/json",
+)
+
 SAFETY_SETTINGS = {
     generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
     generative_models.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -197,6 +205,40 @@ class EHRConverter:
                 f"Model output was not valid JSON ({e}). Preview: {cleaned[:500]!r}"
             ) from e
 
+    def _extract_clinical_structured_from_text(self, text: str) -> dict[str, Any]:
+        """
+        Fallback extractor for transcript-like clinical notes.
+        Returns discrete fields (symptoms/history/etc.) instead of raw transcript blobs.
+        """
+        self._ensure_vertex()
+        model = GenerativeModel("gemini-2.0-flash-001")
+        prompt = (
+            "You are a clinical data extractor. Convert the transcript into a compact JSON object. "
+            "Use discrete keys and arrays only; do not include the full transcript. "
+            "If unknown, omit the key.\n\n"
+            "Recommended keys: chief_complaint, history_of_present_illness, symptoms, "
+            "duration, onset, location, radiation, severity, aggravating_factors, "
+            "relieving_factors, associated_symptoms, pertinent_negatives, medications_taken, "
+            "shortness_of_breath, chest_pain, assessment_notes.\n\n"
+            "Transcript:\n"
+            f"{text}"
+        )
+        responses = model.generate_content(
+            [prompt],
+            generation_config=CLINICAL_STRUCTURED_JSON_GENERATION_CONFIG,
+            safety_settings=SAFETY_SETTINGS,
+            stream=True,
+        )
+        raw = _collect_stream(responses)
+        cleaned = _clean_json_response(raw)
+        if not cleaned:
+            return {}
+        try:
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
     def extract_from_document(
         self,
         source: str,
@@ -297,7 +339,16 @@ class EHRConverter:
         structured = self.extract_from_text(transcription)
         if not isinstance(structured, dict):
             structured = {}
-        return format_ehr_with_source_text(structured, transcription)
+        out = format_ehr_with_source_text(structured, transcription)
+        if out.get("structured"):
+            return out
+
+        # Fallback: second-pass clinical mapping when first structured extraction is empty.
+        fallback = self._extract_clinical_structured_from_text(transcription)
+        out["structured"] = _dedupe_prose_keys(fallback, transcription)
+        if out["structured"]:
+            out["note"] = "Used clinical fallback mapping for transcript."
+        return out
 
     def extract_text_from_image(
         self,
