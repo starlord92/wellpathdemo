@@ -203,9 +203,10 @@ def extract_image():
         text = converter.extract_text_from_image(path, mime_type=mime, upload_to_gcs=True)
         if not (text and text.strip()):
             return {"extracted_text": "", "structured": {}}
-        result = converter.extract_from_text(text)
-        result["extracted_text"] = text
-        return result
+        from ehr_conversion import format_ehr_with_source_text
+
+        parsed = converter.extract_from_text(text)
+        return format_ehr_with_source_text(parsed, text)
     return _file_upload_route(("file", "image"), run, ".jpg")
 
 

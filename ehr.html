@@ -105,6 +105,21 @@
         window.location.replace('signin.html');
       });
 
+      /** Voice/image APIs return { extracted_text, structured }; show both clearly. */
+      function formatEhrResult(data) {
+        if (data && typeof data.structured === 'object' && data.structured !== null && 'extracted_text' in data) {
+          var parts = [];
+          if (data.note) parts.push('Note: ' + data.note);
+          parts.push('── Structured fields ──');
+          parts.push(JSON.stringify(data.structured, null, 2));
+          parts.push('');
+          parts.push('── Raw transcribed / OCR text ──');
+          parts.push(String(data.extracted_text));
+          return parts.join('\n');
+        }
+        return JSON.stringify(data, null, 2);
+      }
+
       var btn = document.getElementById('ehr-extract-btn');
       var input = document.getElementById('ehr-text-input');
       var status = document.getElementById('ehr-status');
@@ -215,7 +230,7 @@
             })
             .then(function(data) {
               voiceStatus.textContent = 'Done.';
-              voiceResult.textContent = JSON.stringify(data, null, 2);
+              voiceResult.textContent = formatEhrResult(data);
               voiceResult.style.display = 'block';
             })
             .catch(function(err) {
@@ -255,7 +270,7 @@
             })
             .then(function(data) {
               imageStatus.textContent = 'Done.';
-              imageResult.textContent = JSON.stringify(data, null, 2);
+              imageResult.textContent = formatEhrResult(data);
               imageResult.style.display = 'block';
             })
             .catch(function(err) {

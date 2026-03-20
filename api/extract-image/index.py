@@ -179,8 +179,10 @@ class handler(BaseHTTPRequestHandler):
                 if not (text and text.strip()):
                     result = {"extracted_text": "", "structured": {}}
                 else:
-                    result = converter.extract_from_text(text)
-                    result["extracted_text"] = text
+                    from ehr_conversion import format_ehr_with_source_text
+
+                    parsed = converter.extract_from_text(text)
+                    result = format_ehr_with_source_text(parsed, text)
                 out = json.dumps(result).encode("utf-8")
             except Exception as e:
                 _send_headers(self, 500)

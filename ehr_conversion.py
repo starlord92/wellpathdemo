@@ -27,14 +27,17 @@ from typing import Any, Optional
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "penfield-ai-dev")
 
 import vertexai
-from vertexai.generative_models import GenerativeModel, Part
+from vertexai.generative_models import GenerativeModel, Part, GenerationConfig
 import vertexai.preview.generative_models as generative_models
 
 
 # --- Prompts (same as chatui) ---
-PII_SYSTEM_INSTRUCTION = """Given the sentence below containing personal information, extract all identifiable personal details and organize them meaningfully into a JSON format. Ensure that each piece of information is categorized appropriately based on its content. The output should reflect all discernible personal information from the input sentence. Make sure all dates are in dd-mm-yyyy format regardless of how they are entered
+PII_SYSTEM_INSTRUCTION = """Given the sentence below containing personal information, extract all identifiable personal details and organize them meaningfully into a JSON format. Ensure that each piece of information is categorized appropriately based on its content. The output should reflect all discernible personal information from the input sentence. Make sure all dates are in dd-mm-yyyy format regardless of how they are entered.
+
+CRITICAL: Use discrete JSON keys such as name, address, email, phone_number, organization, date_of_birth, etc. Do NOT put the entire input or a long transcript into a single field named extracted_text, transcription, raw_text, text, or similar — split facts into the appropriate fields. If a field has no value, omit it.
+
 Output:
-Return the extracted information in a JSON file
+Return the extracted information as a JSON object only.
 
 Example:
 Input Sentence: "Jane Doe, living at 123 Maple Street, Springfield, IL 62704, works at Acme Corp and can be contacted at jane.doe@example.com or (555) 123-4567."
@@ -51,14 +54,25 @@ Output JSON:
 DOCUMENT_SYSTEM_INSTRUCTION = (
     "As an expert in document entity extraction, you parse documents to identify and organize "
     "specific entities from diverse sources into structured formats, following detailed guidelines "
-    "for clarity and completeness. Return all information extracted in a structured json file."
+    "for clarity and completeness. Return all information extracted as a single JSON object with "
+    "discrete keys (name, address, email, phone_number, organization, dates, identifiers, etc.). "
+    "Do NOT dump the full document text into one key like extracted_text or transcription."
 )
 
-GENERATION_CONFIG = {
-    "max_output_tokens": 8192,
-    "temperature": 1,
-    "top_p": 0.95,
-}
+# Plain text generation (e.g. audio transcription)
+TRANSCRIBE_GENERATION_CONFIG = GenerationConfig(
+    max_output_tokens=8192,
+    temperature=1,
+    top_p=0.95,
+)
+
+# Structured JSON — reduces model returning one blob field with the whole input
+STRUCTURED_JSON_GENERATION_CONFIG = GenerationConfig(
+    max_output_tokens=8192,
+    temperature=1,
+    top_p=0.95,
+    response_mime_type="application/json",
+)
 
 SAFETY_SETTINGS = {
     generative_models.HarmCategory.HARM_CATEGORY_HATE_SPEECH: generative_models.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -83,6 +97,50 @@ def _collect_stream(responses) -> str:
         t = getattr(r, "text", None) or ""
         parts.append(t)
     return "".join(parts)
+
+
+# Keys models often misuse to echo the full transcript / OCR text instead of discrete fields
+_PROSE_ECHO_KEYS = frozenset(
+    {
+        "extracted_text",
+        "raw_text",
+        "transcription",
+        "full_text",
+        "text_content",
+        "input_text",
+        "original_text",
+    }
+)
+
+
+def _dedupe_prose_keys(structured: dict[str, Any], source_text: str) -> dict[str, Any]:
+    """
+    Drop JSON fields that duplicate the full source string (common model mistake after voice/OCR).
+    """
+    if not structured:
+        return {}
+    src = (source_text or "").strip()
+    if not src:
+        return dict(structured)
+    out: dict[str, Any] = {}
+    for k, v in structured.items():
+        if k in _PROSE_ECHO_KEYS and isinstance(v, str):
+            vs = v.strip()
+            if vs == src or (len(vs) > 40 and src in vs and len(vs) >= len(src) * 0.85):
+                continue
+        out[k] = v
+    return out
+
+
+def format_ehr_with_source_text(structured: dict[str, Any], source_text: str) -> dict[str, Any]:
+    """Standard shape for voice/image: transcription or OCR plus discrete structured fields."""
+    if not isinstance(structured, dict):
+        structured = {}
+    clean = _dedupe_prose_keys(structured, source_text)
+    return {
+        "extracted_text": source_text,
+        "structured": clean,
+    }
 
 
 class EHRConverter:
@@ -121,7 +179,7 @@ class EHRConverter:
         )
         responses = model.generate_content(
             [text],
-            generation_config=GENERATION_CONFIG,
+            generation_config=STRUCTURED_JSON_GENERATION_CONFIG,
             safety_settings=SAFETY_SETTINGS,
             stream=True,
         )
@@ -178,7 +236,7 @@ class EHRConverter:
         part = Part.from_uri(mime_type=mime_type, uri=gs_uri)
         responses = model.generate_content(
             [part, "Extract information from document and return json file"],
-            generation_config=GENERATION_CONFIG,
+            generation_config=STRUCTURED_JSON_GENERATION_CONFIG,
             safety_settings=SAFETY_SETTINGS,
             stream=True,
         )
@@ -224,7 +282,7 @@ class EHRConverter:
         part = Part.from_uri(mime_type=mime_type, uri=gs_uri)
         responses = model.generate_content(
             [part, "Generate transcription from the audio, only extract speech and ignore background audio."],
-            generation_config=GENERATION_CONFIG,
+            generation_config=TRANSCRIBE_GENERATION_CONFIG,
             safety_settings=SAFETY_SETTINGS,
             stream=True,
         )
@@ -237,9 +295,9 @@ class EHRConverter:
             }
 
         structured = self.extract_from_text(transcription)
-        if isinstance(structured, dict):
-            structured = {**structured, "extracted_text": transcription}
-        return structured
+        if not isinstance(structured, dict):
+            structured = {}
+        return format_ehr_with_source_text(structured, transcription)
 
     def extract_text_from_image(
         self,
@@ -269,7 +327,7 @@ class EHRConverter:
         part = Part.from_uri(mime_type=mime_type, uri=gs_uri)
         responses = model.generate_content(
             [part, "Read the text in this image."],
-            generation_config=GENERATION_CONFIG,
+            generation_config=TRANSCRIBE_GENERATION_CONFIG,
             safety_settings=SAFETY_SETTINGS,
             stream=True,
         )
